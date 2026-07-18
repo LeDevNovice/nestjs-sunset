@@ -28,6 +28,8 @@
     "LICENSE"
   ],
   "scripts": {
+    "build": "tsdown",
+    "build:watch": "tsdown --watch",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
@@ -36,7 +38,10 @@
   },
   "homepage": "https://github.com/LeDevNovice/nestjs-sunset#readme",
   "devDependencies": {
+    "@arethetypeswrong/core": "^0.18.5",
     "eslint": "^10.7.0",
+    "publint": "^0.3.21",
+    "tsdown": "^0.22.9",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.64.0"
   },
