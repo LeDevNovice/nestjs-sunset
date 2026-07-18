@@ -1,24 +1,43 @@
 {
   "name": "nestjs-sunset",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "version": "0.1.0",
+  "description": "API deprecation lifecycle for NestJS",
+  "keywords": [
+    "nestjs",
+    "api",
+    "deprecation",
+    "lifecycle",
+    "sunset",
+    "openapi",
+    "swagger",
+    "http",
+    "http-headers"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LeDevNovice/nestjs-sunset.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "MIT",
+  "author": "LeDevNovice <gregory.saison@proton.me>",
+  "sideEffects": false,
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "bugs": {
     "url": "https://github.com/LeDevNovice/nestjs-sunset/issues"
   },
   "homepage": "https://github.com/LeDevNovice/nestjs-sunset#readme",
   "devDependencies": {
     "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
