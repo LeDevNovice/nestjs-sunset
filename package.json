@@ -46,6 +46,10 @@
     "build": "tsdown",
     "build:watch": "tsdown --watch",
     "lint": "eslint .",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run lint && npm run test:coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "bugs": {
@@ -58,7 +62,9 @@
     "publint": "^0.3.21",
     "tsdown": "^0.22.9",
     "typescript": "^5.5.0",
-    "typescript-eslint": "^8.64.0"
+    "typescript-eslint": "^8.64.0",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20.0.0"
