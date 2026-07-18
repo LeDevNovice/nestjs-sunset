@@ -35,7 +35,9 @@
   },
   "homepage": "https://github.com/LeDevNovice/nestjs-sunset#readme",
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "eslint": "^10.7.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.64.0"
   },
   "engines": {
     "node": ">=20.0.0"
