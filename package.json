@@ -28,6 +28,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "bugs": {
