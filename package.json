@@ -17,5 +17,8 @@
   "bugs": {
     "url": "https://github.com/LeDevNovice/nestjs-sunset/issues"
   },
-  "homepage": "https://github.com/LeDevNovice/nestjs-sunset#readme"
+  "homepage": "https://github.com/LeDevNovice/nestjs-sunset#readme",
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
 }
