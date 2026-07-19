@@ -1,3 +1,4 @@
+import { defineConfig } from 'eslint/config';
 import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
@@ -22,6 +23,10 @@ export default defineConfig(
       ],
       '@typescript-eslint/no-empty-function': 'off',
       '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/no-extraneous-class': [
+        'error',
+        { allowWithDecorator: true },
+      ],
     },
   },
   {
