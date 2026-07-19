@@ -1,1 +1,1 @@
-/** Entry point of the application */
+export { SunsetModule } from './module/sunset.module';
