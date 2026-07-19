@@ -6,9 +6,13 @@ Automatically emits deprecated headers on deprecated NestJS endpoints, with opti
 
 ## Status
 
-**Under active solo development**
+**Under active solo development** - see [CHANGELOG.md](./CHANGELOG.md) for progress.
 
 Full documentation will be published with v1.0.0.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
