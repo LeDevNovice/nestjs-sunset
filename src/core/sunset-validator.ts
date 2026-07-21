@@ -30,6 +30,7 @@ function buildErrorMessage(routeDescription: string, sunset: Date, deprecatedAt:
     `[nestjs-sunset] Invalid configuration on ${routeDescription}:\n` +
     `  Problem  : sunset (${sunset.toISOString()}) must be strictly after` +
     ` deprecatedAt (${deprecatedAt.toISOString()})\n` +
+    `  Rule     : RFC 9745 §4 requires sunset to be after the deprecation date\n` +
     `  Fix : set sunset to a date after ${deprecatedAt.toISOString()}`
   );
 }
