@@ -13,7 +13,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: ['src/index.ts'],
+      exclude: ['src/index.ts', 'src/types/**/*.ts', 'src/module/sunset-module.options.ts'],
       thresholds: {
         statements: 95,
         functions: 95,

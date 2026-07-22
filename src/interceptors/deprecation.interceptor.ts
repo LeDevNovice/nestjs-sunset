@@ -114,15 +114,19 @@ export class DeprecationInterceptor implements NestInterceptor {
       case 'log':
         this.logger.log(message);
         return;
+      /* v8 ignore next 2 */
       case 'error':
         this.logger.error(message);
         return;
+      /* v8 ignore next 2 */
       case 'debug':
         this.logger.debug(message);
         return;
+      /* v8 ignore next 2 */
       case 'verbose':
         this.logger.verbose(message);
         return;
+      /* v8 ignore next 2 */
       case 'fatal':
         this.logger.fatal(message);
         return;

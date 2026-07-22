@@ -27,7 +27,6 @@ function makeWrapper(
   controllerPath: string,
   handlers: Record<string, () => void>,
 ): { instance: object } {
-  // eslint-disable-next-line @typescript-eslint/no-extraneous-class -- Nest metadata host
   class Ctrl {}
   Reflect.defineMetadata('path', controllerPath, Ctrl);
   for (const [name, fn] of Object.entries(handlers)) {
