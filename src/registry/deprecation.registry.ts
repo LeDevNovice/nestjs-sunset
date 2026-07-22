@@ -8,7 +8,9 @@ import { SUNSET_OPTIONS_TOKEN } from '../module/sunset.module-definition';
 import type { SunsetModuleOptions } from '../module/sunset-module.options';
 import type { DeprecatedOptions } from '../types/deprecated-options.type';
 import type { DeprecationRecord } from '../types/deprecation-record.type';
+import { patchSwaggerOperation } from '../swagger/swagger-patcher';
 
+// Maps NestJS RequestMethod enum values to HTTP method name strings.
 const HTTP_METHOD_NAMES = new Map<number, string>([
   [0, 'GET'],
   [1, 'POST'],
@@ -21,6 +23,9 @@ const HTTP_METHOD_NAMES = new Map<number, string>([
   [8, 'SEARCH'],
 ]);
 
+/**
+ * Central registry of all `@Deprecated()` endpoints.
+ */
 @Injectable()
 export class DeprecationRegistry implements OnApplicationBootstrap {
   private readonly logger = new Logger(DeprecationRegistry.name);
@@ -33,13 +38,22 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
     private readonly moduleOptions: SunsetModuleOptions,
   ) {}
 
-  onApplicationBootstrap(): void {
+  /**
+   * Scans all registered NestJS controllers for `@Deprecated()` metadata.
+   *
+   * Called automatically by the NestJS lifecycle after all modules are
+   * initialised. Throws a single `Error` listing ALL configuration problems
+   * if any `@Deprecated()` options are invalid
+   *
+   * @throws {Error} When one or more endpoints have invalid date configuration.
+   */
+  async onApplicationBootstrap(): Promise<void> {
     const errors: string[] = [];
 
     for (const wrapper of this.discoveryService.getControllers()) {
       const instance: unknown = wrapper.instance;
       if (!this.isObject(instance)) continue;
-      this.scanController(instance, errors);
+      await this.scanController(instance, errors);
     }
 
     if (errors.length > 0) {
@@ -47,13 +61,23 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Increments the call counter for a registered deprecated endpoint.
+   *
+   * @param routeDescription - Route identifier, e.g. `"GET /v1/users"`.
+   */
   increment(routeDescription: string): void {
     const record = this.records.get(routeDescription);
+
     if (record === undefined) return;
+
     record.callCount++;
     record.lastCalledAt = new Date();
   }
 
+  /**
+   * Returns all registered deprecation records as a `ReadonlyArray`.
+   */
   getAll(): ReadonlyArray<DeprecationRecord> {
     return Array.from(this.records.values());
   }
@@ -62,7 +86,7 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
     return value !== null && value !== undefined && typeof value === 'object';
   }
 
-  private scanController(instance: object, errors: string[]): void {
+  private async scanController(instance: object, errors: string[]): Promise<void> {
     const proto = Object.getPrototypeOf(instance) as Record<string, unknown>;
     const controllerPath = this.extractControllerPath(proto);
 
@@ -72,12 +96,14 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
 
     for (const methodName of methodNames) {
       const rawHandler = proto[methodName];
+
       if (typeof rawHandler !== 'function') continue;
 
       const options = this.reflector.get<DeprecatedOptions | undefined>(
         SUNSET_METADATA_KEY,
         rawHandler,
       );
+
       if (options === undefined) continue;
 
       const routeDescription = this.buildHandlerRoute(
@@ -99,12 +125,17 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
       });
 
       this.checkSunsetProximity(options, routeDescription);
+      await patchSwaggerOperation(instance, methodName);
     }
   }
 
   private extractControllerPath(proto: Record<string, unknown>): string {
     const raw: unknown = Reflect.getMetadata('path', proto.constructor);
-    return typeof raw === 'string' ? raw : '';
+
+    if (typeof raw !== 'string') return '';
+    if (raw === '/') return '';
+
+    return raw.replace(/^\//, '');
   }
 
   private buildHandlerRoute(

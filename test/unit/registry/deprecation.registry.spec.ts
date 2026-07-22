@@ -27,11 +27,8 @@ function makeWrapper(
   controllerPath: string,
   handlers: Record<string, () => void>,
 ): { instance: object } {
-  class Ctrl {
-    handle(): void {
-      // no-op test double
-    }
-  }
+  // eslint-disable-next-line @typescript-eslint/no-extraneous-class -- Nest metadata host
+  class Ctrl {}
   Reflect.defineMetadata('path', controllerPath, Ctrl);
   for (const [name, fn] of Object.entries(handlers)) {
     Object.defineProperty(Ctrl.prototype, name, {
@@ -89,7 +86,7 @@ describe('DeprecationRegistry', () => {
   });
 
   describe('onApplicationBootstrap', () => {
-    it('should scan all controllers returned by DiscoveryService', () => {
+    it('should scan all controllers returned by DiscoveryService', async () => {
       const handler = makeHandler({
         deprecated: VALID_OPTIONS,
         httpMethod: 0,
@@ -97,12 +94,12 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(mockDiscovery.getControllers).toHaveBeenCalledOnce();
     });
 
-    it('should register valid endpoints in the internal Map and getAll() should return them', () => {
+    it('should register valid endpoints in the internal Map and getAll() should return them', async () => {
       const handler = makeHandler({
         deprecated: VALID_OPTIONS,
         httpMethod: 0,
@@ -110,7 +107,7 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       const records = registry.getAll();
 
@@ -119,20 +116,20 @@ describe('DeprecationRegistry', () => {
       expect(records[0]?.options).toBe(VALID_OPTIONS);
     });
 
-    it('should skip methods without @Deprecated() metadata', () => {
+    it('should skip methods without @Deprecated() metadata', async () => {
       const decorated = makeHandler({ deprecated: VALID_OPTIONS, httpMethod: 0, httpPath: 'a' });
       const bare = makeHandler({ httpMethod: 1, httpPath: 'b' });
       mockDiscovery.getControllers.mockReturnValue([
         makeWrapper('v1', { methodA: decorated, methodB: bare }),
       ]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(registry.getAll()).toHaveLength(1);
       expect(registry.getAll()[0]?.routeDescription).toBe('GET /v1/a');
     });
 
-    it('should throw an Error when sunset < deprecatedAt', () => {
+    it('should throw an Error when sunset < deprecatedAt', async () => {
       const handler = makeHandler({
         deprecated: INVALID_OPTIONS,
         httpMethod: 0,
@@ -140,12 +137,10 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      expect(() => {
-        registry.onApplicationBootstrap();
-      }).toThrow(Error);
+      await expect(registry.onApplicationBootstrap()).rejects.toThrow(Error);
     });
 
-    it('should contain the route description of the misconfigured endpoint in the error message', () => {
+    it('should contain the route description of the misconfigured endpoint in the error message', async () => {
       const handler = makeHandler({
         deprecated: INVALID_OPTIONS,
         httpMethod: 0,
@@ -153,41 +148,27 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      expect(() => {
-        registry.onApplicationBootstrap();
-      }).toThrow(/GET \/v1\/users/);
+      await expect(registry.onApplicationBootstrap()).rejects.toThrow(/GET \/v1\/users/);
     });
 
-    it('should contain RFC 9745 §4 in the error message', () => {
+    it('should contain RFC 9745 in the error message', async () => {
       const handler = makeHandler({ deprecated: INVALID_OPTIONS, httpMethod: 1, httpPath: 'x' });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('', { h: handler })]);
 
-      expect(() => {
-        registry.onApplicationBootstrap();
-      }).toThrow(/RFC 9745 §4/);
+      await expect(registry.onApplicationBootstrap()).rejects.toThrow(/RFC 9745/);
     });
 
-    it('should collect all invalid endpoints into a single Error and not stop at the first', () => {
+    it('should collect all invalid endpoints into a single Error and not stop at the first', async () => {
       const invalidA = makeHandler({ deprecated: INVALID_OPTIONS, httpMethod: 0, httpPath: 'a' });
       const invalidB = makeHandler({ deprecated: INVALID_OPTIONS, httpMethod: 1, httpPath: 'b' });
       mockDiscovery.getControllers.mockReturnValue([
         makeWrapper('v1', { handlerA: invalidA, handlerB: invalidB }),
       ]);
 
-      let caught: Error | undefined;
-
-      try {
-        registry.onApplicationBootstrap();
-      } catch (e) {
-        caught = e as Error;
-      }
-
-      expect(caught).toBeDefined();
-      expect(caught?.message).toContain('/v1/a');
-      expect(caught?.message).toContain('/v1/b');
+      await expect(registry.onApplicationBootstrap()).rejects.toThrow(/\/v1\/a[\s\S]*\/v1\/b/);
     });
 
-    it('should emit Logger.warn when sunset is within the default 30-day threshold', () => {
+    it('should emit Logger.warn when sunset is within the default 30-day threshold', async () => {
       const nearSunset = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000); // 10 days from now
       const handler = makeHandler({
         deprecated: { deprecatedAt: new Date('2025-01-01'), sunset: nearSunset },
@@ -196,12 +177,12 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('should emit Logger.warn when sunset has already passed', () => {
+    it('should emit Logger.warn when sunset has already passed', async () => {
       const pastSunset = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
       const handler = makeHandler({
         deprecated: {
@@ -213,12 +194,12 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getOld: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('should not emit a warn when no sunset is defined', () => {
+    it('should not emit a warn when no sunset is defined', async () => {
       const handler = makeHandler({
         deprecated: { deprecatedAt: new Date('2025-01-01') }, // no sunset
         httpMethod: 0,
@@ -226,12 +207,12 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('should respect a custom sunsetWarningThresholdDays from module options', () => {
+    it('should respect a custom sunsetWarningThresholdDays from module options', async () => {
       mockOptions.sunsetWarningThresholdDays = 60;
 
       const nearSunset = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000);
@@ -242,40 +223,36 @@ describe('DeprecationRegistry', () => {
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('should handle controllers with no methods gracefully', () => {
+    it('should handle controllers with no methods gracefully', async () => {
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', {})]);
 
-      expect(() => {
-        registry.onApplicationBootstrap();
-      }).not.toThrow();
+      await expect(registry.onApplicationBootstrap()).resolves.not.toThrow();
       expect(registry.getAll()).toHaveLength(0);
     });
 
-    it('should handle a null/undefined instance in the wrapper gracefully', () => {
+    it('should handle a null/undefined instance in the wrapper gracefully', async () => {
       mockDiscovery.getControllers.mockReturnValue([{ instance: null }]);
 
-      expect(() => {
-        registry.onApplicationBootstrap();
-      }).not.toThrow();
+      await expect(registry.onApplicationBootstrap()).resolves.not.toThrow();
     });
   });
 
   describe('increment', () => {
     const ROUTE = 'GET /v1/users';
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const handler = makeHandler({
         deprecated: VALID_OPTIONS,
         httpMethod: 0,
         httpPath: 'users',
       });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
     });
 
     it('should increment callCount on a registered endpoint', () => {
@@ -322,21 +299,21 @@ describe('DeprecationRegistry', () => {
       expect(registry.getAll()).toHaveLength(0);
     });
 
-    it('should return all registered records after bootstrap', () => {
+    it('should return all registered records after bootstrap', async () => {
       const h1 = makeHandler({ deprecated: VALID_OPTIONS, httpMethod: 0, httpPath: 'a' });
       const h2 = makeHandler({ deprecated: VALID_OPTIONS, httpMethod: 1, httpPath: 'b' });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { a: h1, b: h2 })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(registry.getAll()).toHaveLength(2);
     });
 
-    it('should initialise callCount at 0 and lastCalledAt as null for new records', () => {
+    it('should initialise callCount at 0 and lastCalledAt as null for new records', async () => {
       const handler = makeHandler({ deprecated: VALID_OPTIONS, httpMethod: 0, httpPath: 'users' });
       mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
 
-      registry.onApplicationBootstrap();
+      await registry.onApplicationBootstrap();
 
       expect(registry.getAll()[0]?.callCount).toBe(0);
       expect(registry.getAll()[0]?.lastCalledAt).toBeNull();
