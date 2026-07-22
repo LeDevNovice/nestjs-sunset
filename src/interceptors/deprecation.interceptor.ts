@@ -29,6 +29,10 @@ interface HttpRequest {
   readonly route?: { readonly path: string };
 }
 
+/**
+ * Global NestJS interceptor that injects RFC-compliant deprecation headers
+ * into every response from an endpoint decorated with `@Deprecated()`.
+ */
 @Injectable()
 export class DeprecationInterceptor implements NestInterceptor {
   private readonly logger = new Logger(DeprecationInterceptor.name);
@@ -61,6 +65,7 @@ export class DeprecationInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<HttpRequest>();
     const routeDescription = `${request.method} ${request.route?.path ?? request.url}`;
 
+    // Days until sunset - positive = future, negative = past, null = no sunset
     const sunset = toDate(options.sunset);
     const daysUntilSunset =
       sunset !== null ? Math.floor((sunset.getTime() - Date.now()) / (1_000 * 60 * 60 * 24)) : null;
@@ -84,6 +89,9 @@ export class DeprecationInterceptor implements NestInterceptor {
     );
   }
 
+  /**
+   * Emits a structured log entry at the configured log level.
+   */
   private emitLog(
     endpoint: string,
     options: DeprecatedOptions,
