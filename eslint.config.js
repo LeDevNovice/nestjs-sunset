@@ -23,10 +23,7 @@ export default defineConfig(
       ],
       '@typescript-eslint/no-empty-function': 'off',
       '@typescript-eslint/no-non-null-assertion': 'error',
-      '@typescript-eslint/no-extraneous-class': [
-        'error',
-        { allowWithDecorator: true },
-      ],
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
     },
   },
   {
@@ -69,6 +66,11 @@ export default defineConfig(
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-extraneous-class': 'off',
     },
   },
   prettierConfig,

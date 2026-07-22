@@ -21,15 +21,10 @@ const FULL_OPTIONS: DeprecatedOptions = {
   message: 'Use GET /v2/users',
 };
 
-/** Minimal Nest controller double — not empty so no-extraneous-class stays happy. */
-class MockController {
-  handle(): void {
-    // no-op test double
-  }
-}
+class MockController {}
 
 function makeMockResponse() {
-  return { header: vi.fn<(name: string, value: string) => void>() };
+  return { header: vi.fn() };
 }
 
 function makeMockRequest(method = 'GET', routePath = '/v1/users') {
@@ -115,6 +110,7 @@ describe('DeprecationInterceptor', () => {
 
       const headerIdx = callOrder.indexOf('header:Deprecation');
       const handleIdx = callOrder.indexOf('handle');
+
       expect(headerIdx).toBeGreaterThanOrEqual(0);
       expect(handleIdx).toBeGreaterThanOrEqual(0);
       expect(headerIdx).toBeLessThan(handleIdx);
@@ -125,6 +121,7 @@ describe('DeprecationInterceptor', () => {
 
       const calls = mockResponse.header.mock.calls;
       const depCall = calls.find(([name]) => name === 'Deprecation');
+
       expect(depCall).toBeDefined();
       expect(depCall![1]).toMatch(/^@\d+$/);
     });
@@ -134,6 +131,7 @@ describe('DeprecationInterceptor', () => {
 
       const calls = mockResponse.header.mock.calls;
       const sunsetCall = calls.find(([name]) => name === 'Sunset');
+
       expect(sunsetCall).toBeDefined();
       expect(sunsetCall![1]).toMatch(/UTC$/);
     });
@@ -144,6 +142,7 @@ describe('DeprecationInterceptor', () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
       const sunsetCall = mockResponse.header.mock.calls.find(([name]) => name === 'Sunset');
+
       expect(sunsetCall).toBeUndefined();
     });
 
@@ -152,6 +151,7 @@ describe('DeprecationInterceptor', () => {
 
       const calls = mockResponse.header.mock.calls;
       const linkCall = calls.find(([name]) => name === 'Link');
+
       expect(linkCall).toBeDefined();
       expect(linkCall![1]).toContain('rel="deprecation"');
     });
@@ -162,6 +162,7 @@ describe('DeprecationInterceptor', () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
       const linkCall = mockResponse.header.mock.calls.find(([name]) => name === 'Link');
+
       expect(linkCall).toBeUndefined();
     });
 
@@ -205,6 +206,7 @@ describe('DeprecationInterceptor', () => {
       expect(hookSpy).toHaveBeenCalledOnce();
 
       const event = hookSpy.mock.calls[0]?.[0];
+
       expect(event).toBeDefined();
       expect(event).toEqual(
         expect.objectContaining({
