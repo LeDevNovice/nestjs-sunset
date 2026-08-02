@@ -29,7 +29,15 @@ const HTTP_METHOD_NAMES = new Map<number, string>([
 @Injectable()
 export class DeprecationRegistry implements OnApplicationBootstrap {
   private readonly logger = new Logger(DeprecationRegistry.name);
-  private readonly records = new Map<string, DeprecationRecord>();
+
+  /**
+   * Primary index: handler function reference → DeprecationRecord.
+   *
+   * Using the function reference as the key eliminates any dependence on
+   * string reconstruction and guarantees O(1) lookup with adapter-agnostic
+   * correctness (Express and Fastify, with or without URL parameters).
+   */
+  private readonly handlerIndex = new Map<(...args: unknown[]) => unknown, DeprecationRecord>();
 
   constructor(
     private readonly discoveryService: DiscoveryService,
@@ -43,7 +51,7 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
    *
    * Called automatically by the NestJS lifecycle after all modules are
    * initialised. Throws a single `Error` listing ALL configuration problems
-   * if any `@Deprecated()` options are invalid
+   * if any `@Deprecated()` options are invalid.
    *
    * @throws {Error} When one or more endpoints have invalid date configuration.
    */
@@ -62,12 +70,19 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
   }
 
   /**
-   * Increments the call counter for a registered deprecated endpoint.
+   * Records a call to a deprecated endpoint by its handler function reference.
    *
-   * @param routeDescription - Route identifier, e.g. `"GET /v1/users"`.
+   * This is the core of the B1 fix: the interceptor passes
+   * `context.getHandler()` directly — no string reconstruction, no adapter-
+   * specific path extraction. The same function reference that was stored in
+   * `handlerIndex` at boot time is used as the lookup key at request time.
+   *
+   * @param handler - The handler function returned by `context.getHandler()`.
+   * Silently ignored if the handler is not in the index (e.g.,
+   * a non-deprecated endpoint or an uninitialised registry).
    */
-  increment(routeDescription: string): void {
-    const record = this.records.get(routeDescription);
+  recordCall(handler: (...args: unknown[]) => unknown): void {
+    const record = this.handlerIndex.get(handler);
 
     if (record === undefined) return;
 
@@ -76,10 +91,24 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
   }
 
   /**
+   * Returns the canonical route description for a given handler, or
+   * `undefined` if the handler is not registered as deprecated.
+   *
+   * The description is built once at boot time from NestJS Reflect metadata
+   * (e.g. `"GET /v1/users/:id"`) and is the single source of truth for the
+   * `endpoint` field in structured logs and `DeprecationEvent` hooks.
+   *
+   * @param handler - The handler function returned by `context.getHandler()`.
+   */
+  getRouteDescription(handler: (...args: unknown[]) => unknown): string | undefined {
+    return this.handlerIndex.get(handler)?.routeDescription;
+  }
+
+  /**
    * Returns all registered deprecation records as a `ReadonlyArray`.
    */
   getAll(): ReadonlyArray<DeprecationRecord> {
-    return Array.from(this.records.values());
+    return Array.from(this.handlerIndex.values());
   }
 
   private isObject(value: unknown): value is object {
@@ -117,7 +146,10 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
         continue;
       }
 
-      this.records.set(routeDescription, {
+      // Store the record indexed by the handler function reference.
+      // The same reference will be passed by the interceptor via
+      // `context.getHandler()`, making the lookup O(1) and adapter-agnostic.
+      this.handlerIndex.set(rawHandler as (...args: unknown[]) => unknown, {
         routeDescription,
         options,
         callCount: 0,

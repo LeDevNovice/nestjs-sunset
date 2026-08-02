@@ -35,12 +35,14 @@ function makeMockCallHandler(payload: unknown = { data: 'ok' }) {
   return { handle: vi.fn().mockReturnValue(of(payload)) };
 }
 
+const MOCK_HANDLER = function mockHandler() {};
+
 function makeMockContext(
   response = makeMockResponse(),
   request = makeMockRequest(),
 ): ExecutionContext {
   return {
-    getHandler: vi.fn().mockReturnValue(function mockHandler() {}),
+    getHandler: vi.fn().mockReturnValue(MOCK_HANDLER),
     getClass: vi.fn().mockReturnValue(MockController),
     switchToHttp: vi.fn().mockReturnValue({
       getResponse: () => response,
@@ -52,13 +54,19 @@ function makeMockContext(
 describe('DeprecationInterceptor', () => {
   let interceptor: DeprecationInterceptor;
   let mockReflector: { getAllAndOverride: ReturnType<typeof vi.fn> };
-  let mockRegistry: { increment: ReturnType<typeof vi.fn> };
+  let mockRegistry: {
+    recordCall: ReturnType<typeof vi.fn>;
+    getRouteDescription: ReturnType<typeof vi.fn>;
+  };
   let mockOptions: SunsetModuleOptions;
   let warnSpy: MockInstance;
 
   beforeEach(async () => {
     mockReflector = { getAllAndOverride: vi.fn() };
-    mockRegistry = { increment: vi.fn() };
+    mockRegistry = {
+      recordCall: vi.fn(),
+      getRouteDescription: vi.fn().mockReturnValue('GET /v1/users'),
+    };
     mockOptions = {};
 
     warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -166,35 +174,47 @@ describe('DeprecationInterceptor', () => {
       expect(linkCall).toBeUndefined();
     });
 
-    it('should NOT call registry.increment() until the observable is subscribed', () => {
+    it('should NOT call registry.recordCall() until the observable is subscribed', () => {
       interceptor.intercept(mockContext, mockCallHandler as CallHandler);
 
-      expect(mockRegistry.increment).not.toHaveBeenCalled();
+      expect(mockRegistry.recordCall).not.toHaveBeenCalled();
     });
 
-    it('should call registry.increment() exactly once after subscription', async () => {
+    it('should call registry.recordCall() exactly once after subscription', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).toHaveBeenCalledOnce();
+      expect(mockRegistry.recordCall).toHaveBeenCalledOnce();
     });
 
-    it('should call registry.increment() with the route description derived from the request', async () => {
+    it('should call registry.recordCall() with the handler function reference from context.getHandler() — never a string', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).toHaveBeenCalledWith('GET /v1/users');
+      expect(mockRegistry.recordCall).toHaveBeenCalledWith(MOCK_HANDLER);
+      expect(mockRegistry.recordCall).not.toHaveBeenCalledWith(expect.any(String));
     });
 
-    it('should call registry.increment() AFTER the handler emits, not before', async () => {
+    it('should call registry.recordCall() AFTER the handler emits, not before', async () => {
       const callOrder: string[] = [];
 
-      mockRegistry.increment.mockImplementation(() => callOrder.push('increment'));
+      mockRegistry.recordCall.mockImplementation(() => callOrder.push('recordCall'));
       mockCallHandler.handle.mockReturnValue(
         of('result').pipe(tap(() => callOrder.push('handler-emitted'))),
       );
 
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(callOrder).toStrictEqual(['handler-emitted', 'increment']);
+      expect(callOrder).toStrictEqual(['handler-emitted', 'recordCall']);
+    });
+
+    it('should derive the log endpoint from registry.getRouteDescription(), not from request reconstruction', async () => {
+      mockRegistry.getRouteDescription.mockReturnValue('GET /canonical/route');
+
+      await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
+
+      const logArg = warnSpy.mock.calls[0]?.[0] as { endpoint?: string } | undefined;
+
+      expect(logArg).toBeDefined();
+      expect((logArg as Record<string, unknown>)['endpoint']).toBe('GET /canonical/route');
     });
 
     it('should call onDeprecatedEndpointCalled hook when configured', async () => {
@@ -280,10 +300,10 @@ describe('DeprecationInterceptor', () => {
       expect(result).toStrictEqual({ data: 'passthrough' });
     });
 
-    it('should NOT call registry.increment()', async () => {
+    it('should NOT call registry.recordCall()', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).not.toHaveBeenCalled();
+      expect(mockRegistry.recordCall).not.toHaveBeenCalled();
     });
 
     it('should NOT emit a log entry', async () => {
@@ -295,23 +315,12 @@ describe('DeprecationInterceptor', () => {
 
   describe('getAllAndOverride metadata lookup', () => {
     it('should read metadata with [handler, class] priority order and handler options should override controller', () => {
-      const mockHandler = vi.fn();
-
-      const ctx = {
-        getHandler: vi.fn().mockReturnValue(mockHandler),
-        getClass: vi.fn().mockReturnValue(MockController),
-        switchToHttp: vi.fn().mockReturnValue({
-          getResponse: () => makeMockResponse(),
-          getRequest: () => makeMockRequest(),
-        }),
-      } as unknown as ExecutionContext;
-
       mockReflector.getAllAndOverride.mockReturnValue(undefined);
 
-      interceptor.intercept(ctx, makeMockCallHandler() as CallHandler);
+      interceptor.intercept(makeMockContext(), makeMockCallHandler() as CallHandler);
 
       expect(mockReflector.getAllAndOverride).toHaveBeenCalledWith(SUNSET_METADATA_KEY, [
-        mockHandler,
+        MOCK_HANDLER,
         MockController,
       ]);
     });

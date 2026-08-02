@@ -26,7 +26,6 @@ interface HttpResponse {
 interface HttpRequest {
   readonly method: string;
   readonly url: string;
-  readonly route?: { readonly path: string };
 }
 
 /**
@@ -62,10 +61,13 @@ export class DeprecationInterceptor implements NestInterceptor {
     if (headers.Sunset !== undefined) response.header('Sunset', headers.Sunset);
     if (headers.Link !== undefined) response.header('Link', headers.Link);
 
-    const request = context.switchToHttp().getRequest<HttpRequest>();
-    const routeDescription = `${request.method} ${request.route?.path ?? request.url}`;
+    const handler = context.getHandler() as (...args: unknown[]) => unknown;
 
-    // Days until sunset - positive = future, negative = past, null = no sunset
+    const routeDescription =
+      this.registry.getRouteDescription(handler) ??
+      /* v8 ignore next */
+      `${context.switchToHttp().getRequest<HttpRequest>().method} ${context.switchToHttp().getRequest<HttpRequest>().url}`;
+
     const sunset = toDate(options.sunset);
     const daysUntilSunset =
       sunset !== null ? Math.floor((sunset.getTime() - Date.now()) / (1_000 * 60 * 60 * 24)) : null;
@@ -73,7 +75,7 @@ export class DeprecationInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         this.emitLog(routeDescription, options, daysUntilSunset);
-        this.registry.increment(routeDescription);
+        this.registry.recordCall(handler);
 
         if (this.moduleOptions.onDeprecatedEndpointCalled !== undefined) {
           const event: DeprecationEvent = {
