@@ -45,26 +45,32 @@ describe('TestAppModule fixture', () => {
     expect(ctrl).toBeInstanceOf(TestController);
   });
 
-  it('should have TestController with exactly three handler methods', () => {
+  it('should have TestController with exactly four handler methods', () => {
     const ctrl = moduleRef.get(TestController, { strict: false });
     const proto = Object.getPrototypeOf(ctrl) as Record<string, unknown>;
     const methods = Object.getOwnPropertyNames(proto).filter((m) => m !== 'constructor');
 
-    expect(methods).toHaveLength(3);
+    expect(methods).toHaveLength(4);
     expect(methods).toContain('getDeprecatedFull');
     expect(methods).toContain('getDeprecatedMinimal');
+    expect(methods).toContain('getDeprecatedParameterized');
     expect(methods).toContain('getActive');
   });
 
-  it('should have getDeprecatedFull and getDeprecatedMinimal with distinct HTTP paths', () => {
+  it('should have each handler with a distinct HTTP path', () => {
     const fullPath: unknown = Reflect.getMetadata('path', getHandler('getDeprecatedFull'));
     const minPath: unknown = Reflect.getMetadata('path', getHandler('getDeprecatedMinimal'));
+    const paramPath: unknown = Reflect.getMetadata(
+      'path',
+      getHandler('getDeprecatedParameterized'),
+    );
     const activePath: unknown = Reflect.getMetadata('path', getHandler('getActive'));
 
     expect(fullPath).toBe('deprecated-full');
     expect(minPath).toBe('deprecated-minimal');
+    expect(paramPath).toBe('deprecated-parameterized/:id');
     expect(activePath).toBe('active');
-    expect(new Set([fullPath, minPath, activePath]).size).toBe(3);
+    expect(new Set([fullPath, minPath, paramPath, activePath]).size).toBe(4);
   });
 
   it('should have getDeprecatedFull carries full @Deprecated() options', () => {
@@ -85,25 +91,36 @@ describe('TestAppModule fixture', () => {
     expect(meta).toStrictEqual({});
   });
 
+  it('should have getDeprecatedParameterized carries a deprecatedAt option', () => {
+    const meta = Reflect.getMetadata(
+      SUNSET_METADATA_KEY,
+      getHandler('getDeprecatedParameterized'),
+    ) as Record<string, unknown> | undefined;
+
+    expect(meta).toBeDefined();
+    expect(meta?.deprecatedAt).toEqual(new Date('2025-01-01'));
+  });
+
   it('should have getActive with NO @Deprecated() metadata', () => {
     const meta: unknown = Reflect.getMetadata(SUNSET_METADATA_KEY, getHandler('getActive'));
 
     expect(meta).toBeUndefined();
   });
 
-  it('should have DeprecationRegistry that register exactly 2 deprecated endpoints when bootstrapped', async () => {
+  it('should have DeprecationRegistry that registers exactly 3 deprecated endpoints when bootstrapped', async () => {
     const registry = moduleRef.get(DeprecationRegistry, { strict: false });
     await registry.onApplicationBootstrap();
 
     const records = registry.getAll();
-    expect(records).toHaveLength(2);
+    expect(records).toHaveLength(3);
 
     const routes = records.map((r) => r.routeDescription);
     expect(routes).toContain('GET /deprecated-full');
     expect(routes).toContain('GET /deprecated-minimal');
+    expect(routes).toContain('GET /deprecated-parameterized/:id');
   });
 
-  it('should have deprecated-full record has the exact configured options after bootstrap', async () => {
+  it('should have deprecated-full record with exact configured options after bootstrap', async () => {
     const registry = moduleRef.get(DeprecationRegistry, { strict: false });
     await registry.onApplicationBootstrap();
 

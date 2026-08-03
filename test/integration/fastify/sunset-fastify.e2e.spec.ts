@@ -134,6 +134,28 @@ describe('SunsetModule E2E [Fastify]', () => {
     });
   });
 
+  describe('GET /deprecated-parameterized/:id', () => {
+    it('should return HTTP 200 with the resolved id in the body', async () => {
+      const res = await http().get('/deprecated-parameterized/42');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toStrictEqual({ ok: true, id: '42' });
+    });
+
+    it('should have Deprecation header present on parameterised routes', async () => {
+      const res = await http().get('/deprecated-parameterized/42');
+
+      expect(res.headers['deprecation']).toMatch(/^@\d+$/);
+    });
+
+    it('should increment callCount using the route pattern key and not the concrete URL', async () => {
+      const before = findRecord('GET /deprecated-parameterized/:id')?.callCount ?? 0;
+      await http().get('/deprecated-parameterized/42');
+
+      expect(findRecord('GET /deprecated-parameterized/:id')?.callCount).toBe(before + 1);
+    });
+  });
+
   describe('DeprecationRegistry', () => {
     it('should have callCount for GET /deprecated-full increments after each request', async () => {
       const before = findRecord('GET /deprecated-full')?.callCount ?? 0;

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 
 import { Deprecated } from '../../../src/decorators/deprecated.decorator';
 
@@ -18,6 +18,12 @@ export class TestController {
   @Get('deprecated-minimal')
   getDeprecatedMinimal(): { ok: boolean } {
     return { ok: true };
+  }
+
+  @Deprecated({ deprecatedAt: new Date('2025-01-01') })
+  @Get('deprecated-parameterized/:id')
+  getDeprecatedParameterized(@Param('id') id: string): { ok: boolean; id: string } {
+    return { ok: true, id };
   }
 
   @Get('active')
