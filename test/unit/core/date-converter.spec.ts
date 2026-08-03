@@ -57,33 +57,33 @@ describe('toStructuredFieldDate', () => {
 
 describe('toIMFFixdate', () => {
   it('should convert 2026-01-01T00:00:00Z to the exact IMF-fixdate string', () => {
-    expect(toIMFFixdate(new Date('2026-01-01T00:00:00Z'))).toBe('Thu, 01 Jan 2026 00:00:00 UTC');
+    expect(toIMFFixdate(new Date('2026-01-01T00:00:00Z'))).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
   });
 
-  it('should end with "UTC" — never "GMT"', () => {
+  it('should end with "GMT" and never "UTC"', () => {
     const result = toIMFFixdate(new Date('2026-01-01T00:00:00Z'));
 
-    expect(result).toMatch(/ UTC$/);
-    expect(result).not.toMatch(/ GMT$/);
+    expect(result).toMatch(/ GMT$/);
+    expect(result).not.toMatch(/ UTC$/);
   });
 
-  it('should produce a format structurally different from toStructuredFieldDate (RFC asymmetry)', () => {
+  it('should produce a format structurally different from toStructuredFieldDate', () => {
     const date = new Date('2026-01-01T00:00:00Z');
     const sfDate = toStructuredFieldDate(date);
     const imfDate = toIMFFixdate(date);
 
     expect(sfDate).toMatch(/^@\d+$/);
-    expect(imfDate).toMatch(/^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} UTC$/);
+    expect(imfDate).toMatch(/^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/);
     expect(sfDate).not.toBe(imfDate);
   });
 
   it('should correctly pad single-digit day numbers with a leading zero', () => {
     const result = toIMFFixdate(new Date('2026-06-05T12:00:00Z'));
 
-    expect(result).toMatch(/^[A-Z][a-z]{2}, 05 Jun 2026 12:00:00 UTC$/);
+    expect(result).toMatch(/^[A-Z][a-z]{2}, 05 Jun 2026 12:00:00 GMT$/);
   });
 
-  it('should correctly name months other than January (spot-check: June and December)', () => {
+  it('should correctly name months other than January', () => {
     expect(toIMFFixdate(new Date('2026-06-15T00:00:00Z'))).toMatch(/ Jun /);
     expect(toIMFFixdate(new Date('2026-12-31T23:59:59Z'))).toMatch(/ Dec /);
   });

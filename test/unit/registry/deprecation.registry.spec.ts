@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+
 import { Logger } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
@@ -229,6 +230,58 @@ describe('DeprecationRegistry', () => {
     });
   });
 
+  describe('resolvedDeprecatedAt in DeprecationRecord', () => {
+    it('should store the exact Date from options.deprecatedAt when explicitly provided', async () => {
+      const explicitDate = new Date('2025-01-01T00:00:00.000Z');
+      const handler = makeHandler({
+        deprecated: { deprecatedAt: explicitDate, sunset: new Date('2099-01-01') },
+        httpMethod: 0,
+        httpPath: 'users',
+      });
+      mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
+
+      await registry.onApplicationBootstrap();
+
+      const record = registry.getAll()[0];
+      expect(record.resolvedDeprecatedAt).toEqual(explicitDate);
+    });
+
+    it('should store a Date approximately equal to boot time when options.deprecatedAt is absent', async () => {
+      const before = new Date();
+      const handler = makeHandler({
+        deprecated: {},
+        httpMethod: 0,
+        httpPath: 'users',
+      });
+      mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
+
+      await registry.onApplicationBootstrap();
+      const after = new Date();
+
+      const record = registry.getAll()[0];
+      expect(record.resolvedDeprecatedAt).toBeInstanceOf(Date);
+      expect(record.resolvedDeprecatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(record.resolvedDeprecatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+
+    it('should store a Date approximately equal to boot time when options.deprecatedAt is absent (string variant)', async () => {
+      const handler = makeHandler({
+        deprecated: { sunset: new Date('2099-01-01') }, // no deprecatedAt
+        httpMethod: 0,
+        httpPath: 'users',
+      });
+      mockDiscovery.getControllers.mockReturnValue([makeWrapper('v1', { getUsers: handler })]);
+
+      const before = new Date();
+      await registry.onApplicationBootstrap();
+      const after = new Date();
+
+      const record = registry.getAll()[0];
+      expect(record.resolvedDeprecatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(record.resolvedDeprecatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+  });
+
   describe('recordCall', () => {
     let registeredHandler: () => void;
 
@@ -314,6 +367,59 @@ describe('DeprecationRegistry', () => {
     });
   });
 
+  describe('getRecord', () => {
+    let registeredHandler: () => void;
+
+    beforeEach(async () => {
+      registeredHandler = makeHandler({
+        deprecated: VALID_OPTIONS,
+        httpMethod: 0,
+        httpPath: 'users',
+      });
+      mockDiscovery.getControllers.mockReturnValue([
+        makeWrapper('v1', { getUsers: registeredHandler }),
+      ]);
+      await registry.onApplicationBootstrap();
+    });
+
+    it('should return the full DeprecationRecord for a registered handler', () => {
+      const record = registry.getRecord(registeredHandler);
+
+      expect(record).toBeDefined();
+      expect(record?.routeDescription).toBe('GET /v1/users');
+      expect(record?.options).toBe(VALID_OPTIONS);
+      expect(record?.callCount).toBe(0);
+      expect(record?.lastCalledAt).toBeNull();
+    });
+
+    it('should include resolvedDeprecatedAt in the returned record', () => {
+      const record = registry.getRecord(registeredHandler);
+
+      expect(record?.resolvedDeprecatedAt).toBeInstanceOf(Date);
+      expect(record?.resolvedDeprecatedAt).toEqual(new Date('2025-01-01T00:00:00.000Z'));
+    });
+
+    it('should return undefined for an unknown handler', () => {
+      const unknownHandler = () => {};
+
+      expect(registry.getRecord(unknownHandler)).toBeUndefined();
+    });
+
+    it('should return undefined before any bootstrap has occurred', async () => {
+      const freshModule = await Test.createTestingModule({
+        providers: [
+          DeprecationRegistry,
+          { provide: DiscoveryService, useValue: { getControllers: vi.fn().mockReturnValue([]) } },
+          { provide: Reflector, useValue: new Reflector() },
+          { provide: SUNSET_OPTIONS_TOKEN, useValue: {} },
+        ],
+      }).compile();
+      const freshRegistry = freshModule.get(DeprecationRegistry);
+
+      expect(freshRegistry.getRecord(registeredHandler)).toBeUndefined();
+    });
+  });
+
   describe('getRouteDescription', () => {
     let registeredHandler: () => void;
 
@@ -337,20 +443,6 @@ describe('DeprecationRegistry', () => {
       const unknownHandler = () => {};
 
       expect(registry.getRouteDescription(unknownHandler)).toBeUndefined();
-    });
-
-    it('should return undefined before any bootstrap has occurred', async () => {
-      const freshModule = await Test.createTestingModule({
-        providers: [
-          DeprecationRegistry,
-          { provide: DiscoveryService, useValue: { getControllers: vi.fn().mockReturnValue([]) } },
-          { provide: Reflector, useValue: new Reflector() },
-          { provide: SUNSET_OPTIONS_TOKEN, useValue: {} },
-        ],
-      }).compile();
-      const freshRegistry = freshModule.get(DeprecationRegistry);
-
-      expect(freshRegistry.getRouteDescription(registeredHandler)).toBeUndefined();
     });
   });
 
@@ -379,7 +471,7 @@ describe('DeprecationRegistry', () => {
       expect(registry.getAll()[0]?.lastCalledAt).toBeNull();
     });
 
-    it('should return ReadonlyArray and the TypeScript type prevents push/pop at compile time', () => {
+    it('should return ReadonlyArray (TypeScript prevents push/pop at compile time)', () => {
       const result = registry.getAll();
 
       expect(Array.isArray(result)).toBe(true);
