@@ -1,6 +1,6 @@
 {
   "name": "nestjs-sunset",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "RFC-compliant API deprecation lifecycle for NestJS (RFC 9745 + RFC 8594 + RFC 8288)",
   "keywords": [
     "nestjs",

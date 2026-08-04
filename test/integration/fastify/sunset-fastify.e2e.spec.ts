@@ -10,7 +10,7 @@ import { DeprecationRegistry } from '../../../src/registry/deprecation.registry'
 import { TestAppModule } from '../fixtures/test-app.module';
 
 const DEPRECATION_FULL = '@1735689600';
-const SUNSET_FULL = 'Fri, 01 Jan 2027 00:00:00 UTC';
+const SUNSET_FULL = 'Fri, 01 Jan 2027 00:00:00 GMT';
 const LINK_FULL = '</docs/migration>; rel="deprecation"; type="text/html"';
 
 describe('SunsetModule E2E [Fastify]', () => {
@@ -67,14 +67,14 @@ describe('SunsetModule E2E [Fastify]', () => {
 
     it('should have Sunset header that is in IMF-fixdate format and NOT "@<digits>" (RFC 9745)', () => {
       expect(res.headers['sunset']).toMatch(
-        /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} UTC$/,
+        /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/,
       );
       expect(res.headers['sunset']).not.toMatch(/^@\d+$/);
     });
 
-    it('should have Sunset header that ends with "UTC" — never "GMT"', () => {
-      expect(res.headers['sunset']).toMatch(/ UTC$/);
-      expect(res.headers['sunset']).not.toMatch(/ GMT$/);
+    it('should have Sunset header that ends with "GMT" and never "UTC"', () => {
+      expect(res.headers['sunset']).toMatch(/ GMT$/);
+      expect(res.headers['sunset']).not.toMatch(/ UTC$/);
     });
 
     it('should have response body { ok: true }', () => {
@@ -134,9 +134,43 @@ describe('SunsetModule E2E [Fastify]', () => {
     });
   });
 
+  describe('GET /deprecated-parameterized/:id', () => {
+    it('should return HTTP 200 with the resolved id in the body', async () => {
+      const res = await http().get('/deprecated-parameterized/42');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toStrictEqual({ ok: true, id: '42' });
+    });
+
+    it('should have Deprecation header present on parameterised routes', async () => {
+      const res = await http().get('/deprecated-parameterized/42');
+
+      expect(res.headers['deprecation']).toMatch(/^@\d+$/);
+    });
+
+    it('should increment callCount using the route pattern key and not the concrete URL', async () => {
+      const before = findRecord('GET /deprecated-parameterized/:id')?.callCount ?? 0;
+
+      await http().get('/deprecated-parameterized/42');
+
+      expect(findRecord('GET /deprecated-parameterized/:id')?.callCount).toBe(before + 1);
+    });
+  });
+
+  describe('Deprecation header determinism', () => {
+    it('should emit the SAME Deprecation header value on two consecutive requests to deprecated-minimal', async () => {
+      const res1 = await http().get('/deprecated-minimal');
+      const res2 = await http().get('/deprecated-minimal');
+
+      expect(res1.headers['deprecation']).toMatch(/^@\d+$/);
+      expect(res1.headers['deprecation']).toBe(res2.headers['deprecation']);
+    });
+  });
+
   describe('DeprecationRegistry', () => {
     it('should have callCount for GET /deprecated-full increments after each request', async () => {
       const before = findRecord('GET /deprecated-full')?.callCount ?? 0;
+
       await http().get('/deprecated-full');
 
       expect(findRecord('GET /deprecated-full')?.callCount).toBe(before + 1);
@@ -161,6 +195,13 @@ describe('SunsetModule E2E [Fastify]', () => {
 
       expect(countBefore).toBeUndefined();
       expect(countAfter).toBeUndefined();
+    });
+
+    it('should expose resolvedDeprecatedAt in getAll() records', () => {
+      const record = findRecord('GET /deprecated-full');
+
+      expect(record?.resolvedDeprecatedAt).toBeInstanceOf(Date);
+      expect(record?.resolvedDeprecatedAt).toEqual(new Date('2025-01-01T00:00:00.000Z'));
     });
   });
 });

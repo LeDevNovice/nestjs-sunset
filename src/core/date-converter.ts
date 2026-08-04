@@ -53,15 +53,15 @@ export function toStructuredFieldDate(date: Date): string {
 }
 
 /**
- * Converts a `Date` to the IMF-fixdate format required by RFC 8594.
+ * Converts a `Date` to the IMF-fixdate format required by RFC 8594 (RFC 9110 §5.6.7).
  *
- * Format: `Ddd, DD Mon YYYY HH:MM:SS UTC`
+ * Format: `Ddd, DD Mon YYYY HH:MM:SS GMT`
  *
  * @param date - The sunset date to encode.
- * @returns    A string such as `"Thu, 01 Jan 2026 00:00:00 UTC"`.
+ * @returns    A string such as `"Thu, 01 Jan 2026 00:00:00 GMT"`.
  *
  * @example
- *   toIMFFixdate(new Date('2026-01-01T00:00:00Z')) // 'Thu, 01 Jan 2026 00:00:00 UTC'
+ *   toIMFFixdate(new Date('2026-01-01T00:00:00Z')) // 'Thu, 01 Jan 2026 00:00:00 GMT'
  */
 export function toIMFFixdate(date: Date): string {
   const day = UTC_DAYS[date.getUTCDay()];
@@ -72,5 +72,5 @@ export function toIMFFixdate(date: Date): string {
   const mm = String(date.getUTCMinutes()).padStart(2, '0');
   const ss = String(date.getUTCSeconds()).padStart(2, '0');
 
-  return `${day}, ${dd} ${month} ${year} ${hh}:${mm}:${ss} UTC`;
+  return `${day}, ${dd} ${month} ${year} ${hh}:${mm}:${ss} GMT`;
 }

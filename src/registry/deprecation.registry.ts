@@ -10,6 +10,9 @@ import type { DeprecatedOptions } from '../types/deprecated-options.type';
 import type { DeprecationRecord } from '../types/deprecation-record.type';
 import { patchSwaggerOperation } from '../swagger/swagger-patcher';
 
+/** Representing route handler references. */
+type RouteHandler = (...args: unknown[]) => unknown;
+
 // Maps NestJS RequestMethod enum values to HTTP method name strings.
 const HTTP_METHOD_NAMES = new Map<number, string>([
   [0, 'GET'],
@@ -29,7 +32,15 @@ const HTTP_METHOD_NAMES = new Map<number, string>([
 @Injectable()
 export class DeprecationRegistry implements OnApplicationBootstrap {
   private readonly logger = new Logger(DeprecationRegistry.name);
-  private readonly records = new Map<string, DeprecationRecord>();
+
+  /**
+   * Primary index: handler function reference → DeprecationRecord.
+   *
+   * Using the function reference as the key eliminates any dependence on
+   * string reconstruction and is the entry point for boot-time
+   * resolution of `resolvedDeprecatedAt`.
+   */
+  private readonly handlerIndex = new Map<RouteHandler, DeprecationRecord>();
 
   constructor(
     private readonly discoveryService: DiscoveryService,
@@ -42,8 +53,14 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
    * Scans all registered NestJS controllers for `@Deprecated()` metadata.
    *
    * Called automatically by the NestJS lifecycle after all modules are
-   * initialised. Throws a single `Error` listing ALL configuration problems
-   * if any `@Deprecated()` options are invalid
+   * initialised. For each valid `@Deprecated()` endpoint:
+   *   - Computes `resolvedDeprecatedAt` (once, from `options.deprecatedAt`
+   *     or the current instant) and stores it in the record.
+   *   - Emits a startup warning when the sunset date is within the configured
+   *     threshold.
+   *
+   * Throws a single `Error` listing ALL configuration problems if any
+   * `@Deprecated()` options are invalid (e.g. `sunset < deprecatedAt`).
    *
    * @throws {Error} When one or more endpoints have invalid date configuration.
    */
@@ -62,12 +79,17 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
   }
 
   /**
-   * Increments the call counter for a registered deprecated endpoint.
+   * Records a call to a deprecated endpoint by its handler function reference.
    *
-   * @param routeDescription - Route identifier, e.g. `"GET /v1/users"`.
+   * Passed `context.getHandler()` from the interceptor — the same function
+   * reference stored as the index key at boot time. The lookup is O(1) and
+   * requires no string reconstruction or adapter-specific path extraction.
+   *
+   * @param handler - The handler function returned by `context.getHandler()`.
+   *                  Silently ignored if the handler is not in the index.
    */
-  increment(routeDescription: string): void {
-    const record = this.records.get(routeDescription);
+  recordCall(handler: RouteHandler): void {
+    const record = this.handlerIndex.get(handler);
 
     if (record === undefined) return;
 
@@ -76,10 +98,44 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
   }
 
   /**
+   * Returns the full `DeprecationRecord` for a handler, or `undefined` if the
+   * handler is not registered as deprecated.
+   *
+   * This is the **sole detection mechanism** used by the interceptor: if this
+   * method returns a record, the endpoint is deprecated. The record contains
+   * everything the interceptor needs — `resolvedDeprecatedAt` for the
+   * `Deprecation` header, `options` for `Sunset`/`Link`, and
+   * `routeDescription` for structured logs and hook events.
+   *
+   * Returning `Readonly<DeprecationRecord>` prevents the interceptor from
+   * accidentally mutating internal registry state. `callCount` and
+   * `lastCalledAt` are intentionally still mutable via `recordCall()`.
+   *
+   * @param handler - The handler function returned by `context.getHandler()`.
+   */
+  getRecord(handler: RouteHandler): Readonly<DeprecationRecord> | undefined {
+    return this.handlerIndex.get(handler);
+  }
+
+  /**
+   * Returns the canonical route description for a given handler, or
+   * `undefined` if the handler is not registered as deprecated.
+   *
+   * @param handler - The handler function returned by `context.getHandler()`.
+   */
+  getRouteDescription(handler: RouteHandler): string | undefined {
+    return this.handlerIndex.get(handler)?.routeDescription;
+  }
+
+  /**
    * Returns all registered deprecation records as a `ReadonlyArray`.
+   *
+   * Each record includes `resolvedDeprecatedAt`, the stable, boot-time
+   * effective deprecation date, alongside the raw `options` from the
+   * decorator, call counters, and the canonical route description.
    */
   getAll(): ReadonlyArray<DeprecationRecord> {
-    return Array.from(this.records.values());
+    return Array.from(this.handlerIndex.values());
   }
 
   private isObject(value: unknown): value is object {
@@ -106,10 +162,7 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
 
       if (options === undefined) continue;
 
-      const routeDescription = this.buildHandlerRoute(
-        controllerPath,
-        rawHandler as (...args: unknown[]) => unknown,
-      );
+      const routeDescription = this.buildHandlerRoute(controllerPath, rawHandler as RouteHandler);
       const validation = validateDeprecationOptions(options, routeDescription);
 
       if (!validation.valid) {
@@ -117,9 +170,18 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
         continue;
       }
 
-      this.records.set(routeDescription, {
+      // Resolve the effective deprecation date once at boot time.
+      // If options.deprecatedAt is absent, default to the current instant.
+      // This value is stored in `resolvedDeprecatedAt` and used exclusively
+      // by the interceptor to build the `Deprecation` HTTP header, ensuring
+      // the header value is stable and deterministic for all subsequent
+      // requests to this endpoint.
+      const resolvedDeprecatedAt = toDate(options.deprecatedAt) ?? new Date();
+
+      this.handlerIndex.set(rawHandler as RouteHandler, {
         routeDescription,
         options,
+        resolvedDeprecatedAt,
         callCount: 0,
         lastCalledAt: null,
       });
@@ -138,10 +200,7 @@ export class DeprecationRegistry implements OnApplicationBootstrap {
     return raw.replace(/^\//, '');
   }
 
-  private buildHandlerRoute(
-    controllerPath: string,
-    handler: (...args: unknown[]) => unknown,
-  ): string {
+  private buildHandlerRoute(controllerPath: string, handler: RouteHandler): string {
     const rawMethod: unknown = Reflect.getMetadata('method', handler);
     const rawPath: unknown = Reflect.getMetadata('path', handler);
 

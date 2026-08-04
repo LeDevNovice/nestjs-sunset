@@ -6,7 +6,7 @@ import type { DeprecatedOptions } from '../types/deprecated-options.type';
 import { toDate, toIMFFixdate, toStructuredFieldDate } from './date-converter';
 
 /**
- * The HTTP headers that may be inject on a deprecated endpoint.
+ * The HTTP headers that may be injected on a deprecated endpoint.
  */
 export interface DeprecationHeaders {
   Deprecation: string;
@@ -17,43 +17,57 @@ export interface DeprecationHeaders {
 /**
  * Builds the RFC-compliant HTTP headers for a deprecated endpoint.
  *
- * Always produces a `Deprecation` header (RFC 9745) in Structured Field
- * Date format (`@<unix_seconds>`). When `options.sunset` is provided, adds a
- * `Sunset` header (RFC 8594) in IMF-fixdate format. When `options.link` is
- * provided, adds a `Link` header (RFC 8288) with `rel="deprecation"`.
+ * The effective deprecation date is resolved once at application boot
+ * by `DeprecationRegistry` and passed here as `resolvedDeprecatedAt`,
+ * ensuring the `Deprecation` header value is stable and deterministic
+ * for the lifetime of the application.
  *
- * The `options.message` field is intentionally excluded from the returned
- * headers — it is a developer-facing note surfaced only in logs.
+ * ## Headers produced
  *
- * @param options - The options supplied to the `@Deprecated()` decorator.
- *                  All fields are optional; calling with `{}` is valid and
- *                  returns `{ Deprecation: '@<now>' }`.
- * @returns       A plain object ready for `response.header(name, value)`.
+ * - `Deprecation` (RFC 9745) — always emitted; Structured Field Date format
+ *   `@<unix_seconds>`, derived from `resolvedDeprecatedAt`.
+ * - `Sunset` (RFC 8594) — emitted when `options.sunset` is provided; IMF-fixdate
+ *   format as required by RFC 9110 §5.6.7.
+ * - `Link` (RFC 8288) — emitted when `options.link` is provided; `rel="deprecation"`.
  *
- * @example
- *   // Minimal — only Deprecation emitted
- *   buildDeprecationHeaders({})
- *   // → { Deprecation: '@1751327999' }
+ * Note: `options.message` is intentionally excluded — it is a developer-facing
+ * note surfaced only in structured logs, never in HTTP headers.
  *
- * @example
- *   // Full options
- *   buildDeprecationHeaders({
- *     deprecatedAt: '2025-01-01',
- *     sunset: new Date('2026-01-01'),
- *     link: '/docs/migration',
- *   })
- *   // → {
- *   //     Deprecation: '@1735689600',
- *   //     Sunset:      'Thu, 01 Jan 2026 00:00:00 UTC',
- *   //     Link:        '</docs/migration>; rel="deprecation"; type="text/html"',
- *   //   }
+ * @param options              - Options from the `@Deprecated()` decorator.
+ *                               Only `sunset` and `link` are read; `deprecatedAt`
+ *                               and `message` are ignored (see `resolvedDeprecatedAt`).
+ * @param resolvedDeprecatedAt - The effective deprecation date, pre-resolved by
+ *                               the registry at boot time. This is the single
+ *                               source of truth for the `Deprecation` header.
+ * @returns A plain object ready for `response.header(name, value)`.
+ *
+ * @example Minimal: only Deprecation emitted
+ * ```ts
+ * buildDeprecationHeaders({}, new Date('2025-01-01'))
+ * // → { Deprecation: '@1735689600' }
+ * ```
+ *
+ * @example Full: all headers emitted
+ * ```ts
+ * buildDeprecationHeaders(
+ *   { sunset: new Date('2026-01-01'), link: '/docs/migration' },
+ *   new Date('2025-01-01'),
+ * )
+ * // → {
+ * //     Deprecation: '@1735689600',
+ * //     Sunset:      'Thu, 01 Jan 2026 00:00:00 GMT',
+ * //     Link:        '</docs/migration>; rel="deprecation"; type="text/html"',
+ * //   }
+ * ```
  */
-export function buildDeprecationHeaders(options: DeprecatedOptions): DeprecationHeaders {
-  const deprecatedAt = toDate(options.deprecatedAt) ?? new Date(); // Fall back to the current instant if the caller did not supply a date.
+export function buildDeprecationHeaders(
+  options: DeprecatedOptions,
+  resolvedDeprecatedAt: Date,
+): DeprecationHeaders {
   const sunset = toDate(options.sunset);
 
   const headers: DeprecationHeaders = {
-    Deprecation: toStructuredFieldDate(deprecatedAt),
+    Deprecation: toStructuredFieldDate(resolvedDeprecatedAt),
   };
 
   if (sunset !== null) {

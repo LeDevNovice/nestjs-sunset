@@ -3,16 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 
 import { Logger } from '@nestjs/common';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 
-import { SUNSET_METADATA_KEY } from '../../../src/decorators/deprecated.decorator';
 import { DeprecationInterceptor } from '../../../src/interceptors/deprecation.interceptor';
 import { SUNSET_OPTIONS_TOKEN } from '../../../src/module/sunset.module-definition';
 import type { SunsetModuleOptions } from '../../../src/module/sunset-module.options';
 import { DeprecationRegistry } from '../../../src/registry/deprecation.registry';
 import type { DeprecatedOptions } from '../../../src/types/deprecated-options.type';
 import type { DeprecationEvent } from '../../../src/types/deprecation-event.type';
+import type { DeprecationRecord } from '../../../src/types/deprecation-record.type';
+
+// ---------------------------------------------------------------------------
+// Test fixtures
+// ---------------------------------------------------------------------------
 
 const FULL_OPTIONS: DeprecatedOptions = {
   deprecatedAt: new Date('2025-01-01T00:00:00.000Z'),
@@ -21,44 +24,59 @@ const FULL_OPTIONS: DeprecatedOptions = {
   message: 'Use GET /v2/users',
 };
 
+const RESOLVED_DEPRECATED_AT = new Date('2025-01-01T00:00:00.000Z');
+
+/** Full DeprecationRecord as returned by registry.getRecord() */
+const FULL_RECORD: DeprecationRecord = {
+  routeDescription: 'GET /v1/users',
+  options: FULL_OPTIONS,
+  resolvedDeprecatedAt: RESOLVED_DEPRECATED_AT,
+  callCount: 0,
+  lastCalledAt: null,
+};
+
 class MockController {}
 
 function makeMockResponse() {
   return { header: vi.fn() };
 }
 
-function makeMockRequest(method = 'GET', routePath = '/v1/users') {
-  return { method, url: routePath, route: { path: routePath } };
-}
-
 function makeMockCallHandler(payload: unknown = { data: 'ok' }) {
   return { handle: vi.fn().mockReturnValue(of(payload)) };
 }
 
-function makeMockContext(
-  response = makeMockResponse(),
-  request = makeMockRequest(),
-): ExecutionContext {
+// The canonical handler function reference returned by context.getHandler().
+const MOCK_HANDLER = function mockHandler() {};
+
+function makeMockContext(response = makeMockResponse()): ExecutionContext {
   return {
-    getHandler: vi.fn().mockReturnValue(function mockHandler() {}),
+    getHandler: vi.fn().mockReturnValue(MOCK_HANDLER),
     getClass: vi.fn().mockReturnValue(MockController),
     switchToHttp: vi.fn().mockReturnValue({
       getResponse: () => response,
-      getRequest: () => request,
+      getRequest: () => ({ method: 'GET', url: '/v1/users' }),
     }),
   } as unknown as ExecutionContext;
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe('DeprecationInterceptor', () => {
   let interceptor: DeprecationInterceptor;
-  let mockReflector: { getAllAndOverride: ReturnType<typeof vi.fn> };
-  let mockRegistry: { increment: ReturnType<typeof vi.fn> };
+  let mockRegistry: {
+    getRecord: ReturnType<typeof vi.fn>;
+    recordCall: ReturnType<typeof vi.fn>;
+  };
   let mockOptions: SunsetModuleOptions;
   let warnSpy: MockInstance;
 
   beforeEach(async () => {
-    mockReflector = { getAllAndOverride: vi.fn() };
-    mockRegistry = { increment: vi.fn() };
+    mockRegistry = {
+      getRecord: vi.fn(),
+      recordCall: vi.fn(),
+    };
     mockOptions = {};
 
     warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -70,7 +88,6 @@ describe('DeprecationInterceptor', () => {
     const module = await Test.createTestingModule({
       providers: [
         DeprecationInterceptor,
-        { provide: Reflector, useValue: mockReflector },
         { provide: DeprecationRegistry, useValue: mockRegistry },
         { provide: SUNSET_OPTIONS_TOKEN, useValue: mockOptions },
       ],
@@ -83,13 +100,17 @@ describe('DeprecationInterceptor', () => {
     vi.restoreAllMocks();
   });
 
-  describe('when @Deprecated() metadata is present', () => {
+  // -------------------------------------------------------------------------
+  // When the handler IS registered as deprecated
+  // -------------------------------------------------------------------------
+
+  describe('when registry.getRecord() returns a DeprecationRecord', () => {
     let mockResponse: ReturnType<typeof makeMockResponse>;
     let mockContext: ExecutionContext;
     let mockCallHandler: ReturnType<typeof makeMockCallHandler>;
 
     beforeEach(() => {
-      mockReflector.getAllAndOverride.mockReturnValue(FULL_OPTIONS);
+      mockRegistry.getRecord.mockReturnValue(FULL_RECORD);
       mockResponse = makeMockResponse();
       mockContext = makeMockContext(mockResponse);
       mockCallHandler = makeMockCallHandler();
@@ -116,28 +137,43 @@ describe('DeprecationInterceptor', () => {
       expect(headerIdx).toBeLessThan(handleIdx);
     });
 
-    it('should inject a Deprecation header in "@<seconds>" Structured Field Date format', async () => {
+    it('should inject a Deprecation header derived from record.resolvedDeprecatedAt — "@<seconds>" format', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
       const calls = mockResponse.header.mock.calls;
       const depCall = calls.find(([name]) => name === 'Deprecation');
 
       expect(depCall).toBeDefined();
-      expect(depCall![1]).toMatch(/^@\d+$/);
+      // resolvedDeprecatedAt = 2025-01-01T00:00:00Z = 1735689600 unix seconds
+      expect(depCall![1]).toBe('@1735689600');
     });
 
-    it('should inject a Sunset header when options.sunset is provided', async () => {
+    it('should produce the same Deprecation header value on every request (determinism)', async () => {
+      await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
+      await lastValueFrom(interceptor.intercept(mockContext, makeMockCallHandler() as CallHandler));
+
+      const allDeprecationCalls = mockResponse.header.mock.calls.filter(
+        ([name]) => name === 'Deprecation',
+      );
+
+      expect(allDeprecationCalls[0]?.[1]).toBe(allDeprecationCalls[1]?.[1]);
+    });
+
+    it('should inject a Sunset header when record.options.sunset is provided', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
       const calls = mockResponse.header.mock.calls;
       const sunsetCall = calls.find(([name]) => name === 'Sunset');
 
       expect(sunsetCall).toBeDefined();
-      expect(sunsetCall![1]).toMatch(/UTC$/);
+      expect(sunsetCall![1]).toMatch(/GMT$/);
     });
 
-    it('should NOT inject a Sunset header when options.sunset is absent', async () => {
-      mockReflector.getAllAndOverride.mockReturnValue({ deprecatedAt: new Date('2025-01-01') });
+    it('should NOT inject a Sunset header when record.options.sunset is absent', async () => {
+      mockRegistry.getRecord.mockReturnValue({
+        ...FULL_RECORD,
+        options: { deprecatedAt: new Date('2025-01-01') },
+      });
 
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
@@ -146,7 +182,7 @@ describe('DeprecationInterceptor', () => {
       expect(sunsetCall).toBeUndefined();
     });
 
-    it('should inject a Link header when options.link is provided', async () => {
+    it('should inject a Link header when record.options.link is provided', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
       const calls = mockResponse.header.mock.calls;
@@ -156,8 +192,11 @@ describe('DeprecationInterceptor', () => {
       expect(linkCall![1]).toContain('rel="deprecation"');
     });
 
-    it('should NOT inject a Link header when options.link is absent', async () => {
-      mockReflector.getAllAndOverride.mockReturnValue({ deprecatedAt: new Date('2025-01-01') });
+    it('should NOT inject a Link header when record.options.link is absent', async () => {
+      mockRegistry.getRecord.mockReturnValue({
+        ...FULL_RECORD,
+        options: { deprecatedAt: new Date('2025-01-01') },
+      });
 
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
@@ -166,35 +205,43 @@ describe('DeprecationInterceptor', () => {
       expect(linkCall).toBeUndefined();
     });
 
-    it('should NOT call registry.increment() until the observable is subscribed', () => {
+    it('should NOT call registry.recordCall() until the observable is subscribed', () => {
       interceptor.intercept(mockContext, mockCallHandler as CallHandler);
 
-      expect(mockRegistry.increment).not.toHaveBeenCalled();
+      expect(mockRegistry.recordCall).not.toHaveBeenCalled();
     });
 
-    it('should call registry.increment() exactly once after subscription', async () => {
+    it('should call registry.recordCall() exactly once after subscription', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).toHaveBeenCalledOnce();
+      expect(mockRegistry.recordCall).toHaveBeenCalledOnce();
     });
 
-    it('should call registry.increment() with the route description derived from the request', async () => {
+    it('should call registry.recordCall() with the handler function reference from context.getHandler()', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).toHaveBeenCalledWith('GET /v1/users');
+      expect(mockRegistry.recordCall).toHaveBeenCalledWith(MOCK_HANDLER);
+      expect(mockRegistry.recordCall).not.toHaveBeenCalledWith(expect.any(String));
     });
 
-    it('should call registry.increment() AFTER the handler emits, not before', async () => {
+    it('should call registry.recordCall() AFTER the handler emits, not before', async () => {
       const callOrder: string[] = [];
 
-      mockRegistry.increment.mockImplementation(() => callOrder.push('increment'));
+      mockRegistry.recordCall.mockImplementation(() => callOrder.push('recordCall'));
       mockCallHandler.handle.mockReturnValue(
         of('result').pipe(tap(() => callOrder.push('handler-emitted'))),
       );
 
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(callOrder).toStrictEqual(['handler-emitted', 'increment']);
+      expect(callOrder).toStrictEqual(['handler-emitted', 'recordCall']);
+    });
+
+    it('should use record.routeDescription as the endpoint in logs and hooks', async () => {
+      await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
+
+      const logArg = warnSpy.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+      expect(logArg?.['endpoint']).toBe('GET /v1/users');
     });
 
     it('should call onDeprecatedEndpointCalled hook when configured', async () => {
@@ -237,7 +284,6 @@ describe('DeprecationInterceptor', () => {
       const freshModule = await Test.createTestingModule({
         providers: [
           DeprecationInterceptor,
-          { provide: Reflector, useValue: mockReflector },
           { provide: DeprecationRegistry, useValue: mockRegistry },
           { provide: SUNSET_OPTIONS_TOKEN, useValue: mockOptions },
         ],
@@ -254,13 +300,18 @@ describe('DeprecationInterceptor', () => {
     });
   });
 
-  describe('when @Deprecated() metadata is absent', () => {
+  // -------------------------------------------------------------------------
+  // When the handler is NOT registered as deprecated
+  // -------------------------------------------------------------------------
+
+  describe('when registry.getRecord() returns undefined (non-deprecated handler)', () => {
     let mockResponse: ReturnType<typeof makeMockResponse>;
     let mockContext: ExecutionContext;
     let mockCallHandler: ReturnType<typeof makeMockCallHandler>;
 
     beforeEach(() => {
-      mockReflector.getAllAndOverride.mockReturnValue(undefined);
+      // getRecord returns undefined → handler is not deprecated
+      mockRegistry.getRecord.mockReturnValue(undefined);
       mockResponse = makeMockResponse();
       mockContext = makeMockContext(mockResponse);
       mockCallHandler = makeMockCallHandler({ data: 'passthrough' });
@@ -280,10 +331,10 @@ describe('DeprecationInterceptor', () => {
       expect(result).toStrictEqual({ data: 'passthrough' });
     });
 
-    it('should NOT call registry.increment()', async () => {
+    it('should NOT call registry.recordCall()', async () => {
       await lastValueFrom(interceptor.intercept(mockContext, mockCallHandler as CallHandler));
 
-      expect(mockRegistry.increment).not.toHaveBeenCalled();
+      expect(mockRegistry.recordCall).not.toHaveBeenCalled();
     });
 
     it('should NOT emit a log entry', async () => {
@@ -293,27 +344,27 @@ describe('DeprecationInterceptor', () => {
     });
   });
 
-  describe('getAllAndOverride metadata lookup', () => {
-    it('should read metadata with [handler, class] priority order and handler options should override controller', () => {
-      const mockHandler = vi.fn();
+  // -------------------------------------------------------------------------
+  // registry.getRecord() is the SOLE detection mechanism
+  // -------------------------------------------------------------------------
 
-      const ctx = {
-        getHandler: vi.fn().mockReturnValue(mockHandler),
-        getClass: vi.fn().mockReturnValue(MockController),
-        switchToHttp: vi.fn().mockReturnValue({
-          getResponse: () => makeMockResponse(),
-          getRequest: () => makeMockRequest(),
-        }),
-      } as unknown as ExecutionContext;
+  describe('registry.getRecord() as sole detection mechanism', () => {
+    it('should call getRecord with the handler function reference from context.getHandler()', () => {
+      mockRegistry.getRecord.mockReturnValue(undefined);
 
-      mockReflector.getAllAndOverride.mockReturnValue(undefined);
+      interceptor.intercept(makeMockContext(), makeMockCallHandler() as CallHandler);
 
-      interceptor.intercept(ctx, makeMockCallHandler() as CallHandler);
+      expect(mockRegistry.getRecord).toHaveBeenCalledWith(MOCK_HANDLER);
+    });
 
-      expect(mockReflector.getAllAndOverride).toHaveBeenCalledWith(SUNSET_METADATA_KEY, [
-        mockHandler,
-        MockController,
-      ]);
+    it('should call getRecord on every request (no caching at interceptor level)', async () => {
+      mockRegistry.getRecord.mockReturnValue(undefined);
+      const ctx = makeMockContext();
+
+      await lastValueFrom(interceptor.intercept(ctx, makeMockCallHandler() as CallHandler));
+      await lastValueFrom(interceptor.intercept(ctx, makeMockCallHandler() as CallHandler));
+
+      expect(mockRegistry.getRecord).toHaveBeenCalledTimes(2);
     });
   });
 });
