@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] — 2026-08-04
+
+### Fixed
+
+- `DeprecationRegistry` now indexes records by handler function reference
+  (`Map<Function, DeprecationRecord>`) instead of a reconstructed route description
+  string. The interceptor passes `context.getHandler()` directly to
+  `registry.recordCall()`, eliminating the adapter-specific divergence where
+  Fastify's `request.url` (e.g. `/users/42`) did not match the boot-time registry
+  key (e.g. `GET /users/:id`), causing `callCount` to silently stay at 0 on all
+  parameterised routes.
+
+- `buildDeprecationHeaders` previously called `new Date()` on every request when
+  `options.deprecatedAt` was absent, producing a different `@<timestamp>` value on
+  each response. `DeprecationRegistry` now resolves the effective deprecation date
+  once during `onApplicationBootstrap` and stores it as `DeprecationRecord.resolvedDeprecatedAt`.
+  The header value is now stable and identical for the lifetime of the process.
+
+- `toIMFFixdate()` was replacing the mandatory `GMT` token with `UTC`
+  (`date.toUTCString().replace('GMT', 'UTC')`). RFC 9110 §5.6.7 is explicit:
+  the only valid timezone token in an IMF-fixdate is `GMT`. RFC 8594 §2 confirms
+  the canonical format: `Sunset: Sat, 31 Dec 2018 23:59:59 GMT`. Strict HTTP parsers
+  (CDN, reverse proxies) may reject the former value. The `UTC` example in RFC 9745
+  §3 is inconsistent with RFC 9110 and believed to be a documentation error.
+
+### Internal
+
+- `DeprecationInterceptor` no longer depends on `Reflector`. `registry.getRecord()`
+  is the sole mechanism for detecting deprecated handlers at request time, replacing
+  the redundant `Reflector.getAllAndOverride()` call.
+- `DeprecationRecord` gains `resolvedDeprecatedAt: Date` (readonly) — the boot-time
+  effective deprecation date used exclusively for `Deprecation` header generation.
+
 ## [1.0.0] — 2026-07-22
 
 First public release. Implements RFC 9745 (Deprecation), RFC 8594 (Sunset), and
@@ -97,4 +130,5 @@ RFC 8288 (Web Linking) for NestJS REST API endpoints.
 
 ---
 
+[1.0.1]: https://github.com/LeDevNovice/nestjs-sunset/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/LeDevNovice/nestjs-sunset/releases/tag/v1.0.0

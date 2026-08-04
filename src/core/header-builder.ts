@@ -55,7 +55,7 @@ export interface DeprecationHeaders {
  * )
  * // → {
  * //     Deprecation: '@1735689600',
- * //     Sunset:      'Thu, 01 Jan 2026 00:00:00 UTC',
+ * //     Sunset:      'Thu, 01 Jan 2026 00:00:00 GMT',
  * //     Link:        '</docs/migration>; rel="deprecation"; type="text/html"',
  * //   }
  * ```
