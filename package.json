@@ -48,7 +48,7 @@
     "build": "tsdown",
     "build:watch": "tsdown --watch",
     "lint": "eslint .",
-    "lint:pkg": "publint && attw --pack",
+    "lint:pkg": "publint && npx @arethetypeswrong/cli --pack .",
     "prepare": "husky",
     "format": "prettier --write . --cache",
     "format:check": "prettier --check . --cache",
