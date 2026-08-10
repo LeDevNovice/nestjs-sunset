@@ -85,7 +85,7 @@
     "rxjs": "^7.8.2",
     "supertest": "^7.2.2",
     "tsdown": "^0.22.9",
-    "typescript": "^5.5.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.64.0",
     "unplugin-swc": "^1.5.9",
     "unrun": "^0.3.1",
